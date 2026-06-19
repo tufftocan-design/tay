@@ -1,0 +1,92 @@
+n
+
+local originalHttpGet = game.HttpGet
+local originalHttpGetAsync = game.HttpGetAsync
+
+game.HttpGet = function(url, ...)
+    if url:find("api.luarmor.net/files/v4/loaders/5f43c5a7d6b0a78eaf931dadba1c1d1f.lua") then
+        local response = originalHttpGet(url, ...)
+        writefile("encrypted_script.lua", response)
+        local decoded = nil
+        local success, result = pcall(function()
+            decoded = game:GetService("HttpService"):Base64Decode(response)
+        end)
+        if success and decoded then
+            writefile("decoded_script.lua", decoded)
+            local deobfuscated = decompile(decoded)
+            writefile("deobfuscated_script.lua", deobfuscated)
+            return deobfuscated
+        end
+        return response
+    end
+    return originalHttpGet(url, ...)
+end
+
+local function decompile(code)
+    local patterns = {
+        {pattern = "\\%x%x", replace = function(m) 
+            return string.char(tonumber(m:sub(2), 16)) 
+        end},
+        {pattern = "loadstring%(", replace = "loadstring("},
+        {pattern = "game:HttpGet%(", replace = "game:HttpGet("},
+        {pattern = "%-%-[^\n]*", replace = ""},
+        {pattern = "%[%[.-%]%]", replace = ""},
+    }
+    for _, p in ipairs(patterns) do
+        code = code:gsub(p.pattern, p.replace)
+    end
+    code = code:gsub(";", ";\n")
+    code = code:gsub("(%b{})", function(s)
+        return s:gsub("\n", "\n  ")
+    end)
+    return code
+end
+
+local function loadDeobfuscated()
+    local success, result = pcall(function()
+        return game:HttpGet("https://api.luarmor.net/files/v4/loaders/5f43c5a7d6b0a78eaf931dadba1c1d1f.lua")
+    end)
+    if success then
+        local clean = decompile(result)
+        writefile("final_deobfuscated.lua", clean)
+        return clean
+    end
+    return nil
+end
+
+local scriptToRun = loadDeobfuscated()
+if scriptToRun then
+    local fn, err = loadstring(scriptToRun)
+    if fn then
+        fn()
+    else
+        print("Load error: " .. tostring(err))
+    end
+end
+
+local function memoryDump()
+    local script = debug.getinfo(1).source
+    if script and script:find("luarmor") then
+        local lines = {}
+        for line in script:gmatch("[^\n]*") do
+            table.insert(lines, line)
+        end
+        local fullScript = table.concat(lines, "\n")
+        writefile("memory_dump.lua", fullScript)
+    end
+end
+
+memoryDump()
+
+local oldNewString = string.gsub
+string.gsub = function(str, pattern, replace, ...)
+    if pattern == "\\%x%x" then
+        writefile("string_decrypt_log.txt", "Decrypting: " .. str .. "\n")
+    end
+    return oldNewString(str, pattern, replace, ...)
+end
+
+task.delay(5, function()
+    game.HttpGet = originalHttpGet
+    string.gsub = oldNewString
+end)
